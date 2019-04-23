@@ -26,11 +26,14 @@ struct CGEVideoDecodeContext {
             avFormatContext = NULL;
         }
 
+        sws_freeContext(sws_ctx);
         av_free(yuvFrame);
         av_free(rgbFrame);
         yuvFrame = NULL;
         rgbFrame = NULL;
         videoStreamIndex = -1;
+
+
 
     }
 
@@ -41,6 +44,7 @@ struct CGEVideoDecodeContext {
     AVFrame *rgbFrame;
     AVPacket *avPacket;
     int videoStreamIndex;
+    struct SwsContext *sws_ctx;
 };
 
 CGEVideoDecodeHandler::CGEVideoDecodeHandler() : m_width(0), m_height(0), m_currentTimestamp(0.0) {
@@ -109,6 +113,19 @@ bool CGEVideoDecodeHandler::open(const char *input) {
 
     m_width = m_context->avCodecContext->width;
     m_height = m_context->avCodecContext->height;
+
+    // 由于解码出来的帧格式不是RGBA的,在渲染之前需要进行格式转换
+    m_context->sws_ctx = sws_getContext(m_context->avCodecContext->width,
+                                        m_context->avCodecContext->height,
+                                        m_context->avCodecContext->pix_fmt,
+                                        m_context->avCodecContext->width,
+                                        m_context->avCodecContext->height,
+                             AV_PIX_FMT_RGBA,
+                             SWS_BILINEAR,
+                             NULL,
+                             NULL,
+                             NULL);
+
     return m_context->yuvFrame != NULL;
 }
 
@@ -117,6 +134,8 @@ void CGEVideoDecodeHandler::close() {
         return;
     delete m_context;
     m_context = NULL;
+
+
 
 }
 
@@ -163,7 +182,7 @@ bool CGEVideoDecodeHandler::seekAccurate(ANativeWindow *nativeWindow,double tm) 
     }
 
     avcodec_flush_buffers(m_context->avCodecContext);
-
+    ANativeWindow_Buffer out_buffer;
     int gotFrame = 0, ret = 0;
     do
     {
@@ -178,28 +197,16 @@ bool CGEVideoDecodeHandler::seekAccurate(ANativeWindow *nativeWindow,double tm) 
                     m_currentTimestamp = 1000.0 * (m_context->yuvFrame->pkt_pts - video_st->start_time) * av_q2d(video_st->time_base);
                     LOGI("Seeking time pass: %g", m_currentTimestamp);
 
-                    //绘制到surface中
-                    // 1.lock window
-                    // 设置缓冲区的属性：宽高、像素格式（需要与Java层的格式一致）
-                    ANativeWindow_Buffer out_buffer;
-
-                    ANativeWindow_setBuffersGeometry(nativeWindow, m_width, m_height,
+                    sws_scale(m_context->sws_ctx, (const uint8_t *const *) m_context->yuvFrame->data, m_context->yuvFrame->linesize, 0,
+                              m_context->avCodecContext->height, m_context->rgbFrame->data,  m_context->rgbFrame->linesize);
+                    ANativeWindow_setBuffersGeometry(nativeWindow, m_context->avCodecContext->width, m_context->avCodecContext->height,
                                                      WINDOW_FORMAT_RGBA_8888);
+
                     ANativeWindow_lock(nativeWindow, &out_buffer, NULL);
-
-                    // 2.fix buffer
-                    // 初始化缓冲区
-                    // 设置属性，像素格式、宽高
-                    av_image_fill_arrays(m_context->rgbFrame->data, m_context->rgbFrame->linesize,
-                                         (const uint8_t *) out_buffer.bits,
-                                         AV_PIX_FMT_RGBA, m_width, m_height, 1);
-
-                    // YUV格式的数据转换成RGBA 8888格式的数据
-                    libyuv::I420ToARGB(m_context->yuvFrame->data[0], m_context->yuvFrame->linesize[0],
-                                       m_context->yuvFrame->data[2], m_context->yuvFrame->linesize[2],
-                                       m_context->yuvFrame->data[1], m_context->yuvFrame->linesize[1],
-                                       m_context->rgbFrame->data[0], m_context->rgbFrame->linesize[0],
-                                       m_width, m_height);
+                    // 格式转换
+                    av_image_fill_arrays( m_context->rgbFrame->data, m_context->rgbFrame->linesize,
+                                          (const uint8_t *) out_buffer.bits, AV_PIX_FMT_RGBA,
+                                          m_context->avCodecContext->width, m_context->avCodecContext->height, 1);
 
                     // 3.unlock window
                     ANativeWindow_unlockAndPost(nativeWindow);
@@ -270,23 +277,16 @@ void CGEVideoDecodeHandler::decode(ANativeWindow *nativeWindow, double time) {
                     // 设置缓冲区的属性：宽高、像素格式（需要与Java层的格式一致）
 
 
-                    ANativeWindow_setBuffersGeometry(nativeWindow, m_width, m_height,
+                    sws_scale(m_context->sws_ctx, (const uint8_t *const *) m_context->yuvFrame->data, m_context->yuvFrame->linesize, 0,
+                              m_context->avCodecContext->height, m_context->rgbFrame->data,  m_context->rgbFrame->linesize);
+                    ANativeWindow_setBuffersGeometry(nativeWindow, m_context->avCodecContext->width, m_context->avCodecContext->height,
                                                      WINDOW_FORMAT_RGBA_8888);
+
                     ANativeWindow_lock(nativeWindow, &out_buffer, NULL);
-
-                    // 2.fix buffer
-                    // 初始化缓冲区
-                    // 设置属性，像素格式、宽高
-                    av_image_fill_arrays(m_context->rgbFrame->data, m_context->rgbFrame->linesize,
-                                         (const uint8_t *) out_buffer.bits,
-                                         AV_PIX_FMT_RGBA, m_width, m_height, 1);
-
-                    // YUV格式的数据转换成RGBA 8888格式的数据
-                    libyuv::I420ToARGB(m_context->yuvFrame->data[0], m_context->yuvFrame->linesize[0],
-                                       m_context->yuvFrame->data[2], m_context->yuvFrame->linesize[2],
-                                       m_context->yuvFrame->data[1], m_context->yuvFrame->linesize[1],
-                                       m_context->rgbFrame->data[0], m_context->rgbFrame->linesize[0],
-                                       m_width, m_height);
+                    // 格式转换
+                    av_image_fill_arrays( m_context->rgbFrame->data, m_context->rgbFrame->linesize,
+                                          (const uint8_t *) out_buffer.bits, AV_PIX_FMT_RGBA,
+                                          m_context->avCodecContext->width, m_context->avCodecContext->height, 1);
 
                     // 3.unlock window
                     ANativeWindow_unlockAndPost(nativeWindow);

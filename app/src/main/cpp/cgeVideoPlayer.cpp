@@ -111,5 +111,7 @@ jstring CGEVideoPlayerYUV420P::getRotate(JNIEnv *env) {
     }
     return 0;
 }
-
+void CGEVideoPlayerYUV420P::setANativeWindow(ANativeWindow *nativeWindow2){
+        nativeWindow=nativeWindow2;
+}
 #endif

@@ -2,6 +2,7 @@
 #define _CGEVIDEODECODER_H_
 #include "cgeFFmpegHeaders.h"
 #include "cgePlatform_ANDROID.h"
+#include <android/native_window_jni.h>
 #include <android/native_window.h>
 class CGEVideoDecodeContext;
 

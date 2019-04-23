@@ -30,8 +30,8 @@ public:
 
     virtual bool seekAccurate(double position) { return false; }
     ANativeWindow * getANativeWindow() { return nativeWindow; }
-    void setANativeWindow(ANativeWindow *nativeWindow2){
-        nativeWindow=nativeWindow2;
+    virtual void setANativeWindow(ANativeWindow *nativeWindow2){
+
     }
 
 protected:
@@ -65,6 +65,8 @@ public:
     jdouble getDuration();
 
     jstring getRotate(JNIEnv *pEnv);
+
+     void setANativeWindow(ANativeWindow *nativeWindow2);
 
 protected:
     CGEVideoDecodeHandler *m_decodeHandler;
