@@ -61,8 +61,12 @@ bool CGEVideoDecodeHandler::open(const char *input) {
     // 封装格式上下文，统领全局的结构体，保存了视频文件封装格式的相关信息
     m_context->avFormatContext = avformat_alloc_context();
     // 2.打开输入视频文件
-    if (avformat_open_input(&m_context->avFormatContext, input, NULL, NULL) != 0) {
-        LOGE("%s", "无法打开输入视频文件");
+    int err_code=avformat_open_input(&m_context->avFormatContext, input, NULL, NULL);
+    if (err_code!= 0) {
+        char *errbuf;
+        memset(errbuf, 0 , 1024);
+        av_strerror(err_code, errbuf, 1024);
+        LOGE("Couldn't open file : %d(%s)",  err_code, errbuf);
         return false;
     }
     // 3.获取视频文件信息

@@ -10,6 +10,7 @@ import android.view.View;
 import android.widget.Button;
 import android.widget.EditText;
 import android.widget.SeekBar;
+import android.widget.Toast;
 
 import java.io.File;
 
@@ -57,6 +58,11 @@ public class MainActivity extends AppCompatActivity {
         btnDecode.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View v) {
+                String file=etFilePath.getText().toString();
+                if(!new File(file).exists()){
+                    Toast.makeText(getApplicationContext(),"不存在",Toast.LENGTH_SHORT).show();
+                    return;
+                }
                 final SurfaceHolder surfaceHolder = svPreview.getHolder();
 
                 if (fFmpegPlayer == null) {
