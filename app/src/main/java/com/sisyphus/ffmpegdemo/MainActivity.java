@@ -38,10 +38,10 @@ public class MainActivity extends AppCompatActivity {
         seekBar.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
             @Override
             public void onProgressChanged(SeekBar seekBar, int progress, boolean fromUser) {
-//                if(fFmpegPlayer!=null) {
-//                    double radio = (int) (progress / 100f * duration);
-//                    fFmpegPlayer.seekAccurate(radio/1000000);
-//                }
+                if(fFmpegPlayer!=null) {
+                    double radio = (int) (progress / 100f * duration);
+                    fFmpegPlayer.seekAccurate(radio/1000000);
+                }
             }
 
             @Override
@@ -57,55 +57,55 @@ public class MainActivity extends AppCompatActivity {
         btnDecode.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View v) {
-//                final SurfaceHolder surfaceHolder = svPreview.getHolder();
-//
-//                if (fFmpegPlayer == null) {
-//                    fFmpegPlayer = new FFmpegPlayer();
-//                    isOpen = fFmpegPlayer.open(etFilePath.getText().toString());
-//                    fFmpegPlayer.setSurface(surfaceHolder.getSurface());
-//                    duration= (long) fFmpegPlayer.getDuration();
-//                }
+                final SurfaceHolder surfaceHolder = svPreview.getHolder();
 
-
-                if(isDecode&&fFmpegPlayer!=null){
-                    fFmpegPlayer.stop();
-                    try {
-                        Thread.sleep(1500);
-                    } catch (InterruptedException e) {
-                        e.printStackTrace();
-                    }
+                if (fFmpegPlayer == null) {
+                    fFmpegPlayer = new FFmpegPlayer();
+                    isOpen = fFmpegPlayer.open(etFilePath.getText().toString());
+                    fFmpegPlayer.setSurface(surfaceHolder.getSurface());
+                    duration= (long) fFmpegPlayer.getDuration();
                 }
 
-                final SurfaceHolder surfaceHolder = svPreview.getHolder();
-                new Thread(new Runnable() {
-                    @Override
-                    public void run() {
-                        isDecode=false;
-                        if(fFmpegPlayer==null) {
-                            fFmpegPlayer = new FFmpegPlayer();
-                            isOpen = fFmpegPlayer.open(etFilePath.getText().toString());
-                            fFmpegPlayer.setSurface(surfaceHolder.getSurface());
-                        }
-                        if(isOpen) {
-                            int width = fFmpegPlayer.getWidth();
-                            int height = fFmpegPlayer.getHeight();
-                            String rotate = fFmpegPlayer.getRotate();
-                            long duration = (int) (fFmpegPlayer.getDuration());
-                            Log.d(TAG, duration + "");
 
-
-                                isDecode=true;
-                                fFmpegPlayer.decode(0);
-
-                            isDecode=false;
-                            if(isOnDestory) {
-                                fFmpegPlayer.release();
-                            }
-                        }else{
-                            fFmpegPlayer.release();
-                        }
-                    }
-                }).start();
+//                if(isDecode&&fFmpegPlayer!=null){
+//                    fFmpegPlayer.stop();
+//                    try {
+//                        Thread.sleep(1500);
+//                    } catch (InterruptedException e) {
+//                        e.printStackTrace();
+//                    }
+//                }
+//
+//                final SurfaceHolder surfaceHolder = svPreview.getHolder();
+//                new Thread(new Runnable() {
+//                    @Override
+//                    public void run() {
+//                        isDecode=false;
+//                        if(fFmpegPlayer==null) {
+//                            fFmpegPlayer = new FFmpegPlayer();
+//                            isOpen = fFmpegPlayer.open(etFilePath.getText().toString());
+//                            fFmpegPlayer.setSurface(surfaceHolder.getSurface());
+//                        }
+//                        if(isOpen) {
+//                            int width = fFmpegPlayer.getWidth();
+//                            int height = fFmpegPlayer.getHeight();
+//                            String rotate = fFmpegPlayer.getRotate();
+//                            long duration = (int) (fFmpegPlayer.getDuration());
+//                            Log.d(TAG, duration + "");
+//
+//
+//                                isDecode=true;
+//                                fFmpegPlayer.decode(0);
+//
+//                            isDecode=false;
+//                            if(isOnDestory) {
+//                                fFmpegPlayer.release();
+//                            }
+//                        }else{
+//                            fFmpegPlayer.release();
+//                        }
+//                    }
+//                }).start();
 
 
             }

@@ -85,19 +85,14 @@ bool CGEVideoDecodeHandler::open(const char *input) {
         return false;
     }
 
-
-    // 4.根据编解码上下文中的编码id查找对应的解码器
-    // 只有知道视频的编码方式，才能够根据编码方式去找到解码器
-    AVCodecParameters *avCodecParameters = m_context->avFormatContext->streams[m_context->videoStreamIndex]->codecpar;
-    m_context->avCodec = avcodec_find_decoder(avCodecParameters->codec_id);
+    m_context->avCodecContext =  m_context->avFormatContext->streams[m_context->videoStreamIndex]->codec;
+    m_context->avCodec = avcodec_find_decoder(m_context->avCodecContext->codec_id);
     if (m_context->avCodec == NULL) {
         LOGE("%s", "找不到解码器，或者视频已加密\n");
         return false;
     }
 
     // 5.打开解码器
-    m_context->avCodecContext = avcodec_alloc_context3(m_context->avCodec);
-    avcodec_parameters_to_context(m_context->avCodecContext, avCodecParameters);
     if (avcodec_open2(m_context->avCodecContext, m_context->avCodec, NULL) < 0) {
         LOGE("%s", "解码器无法打开\n");
         return false;
@@ -105,7 +100,7 @@ bool CGEVideoDecodeHandler::open(const char *input) {
 
     // 准备读取
     // AVPacket用于存储一帧一帧的压缩数据（H264）
-    m_context->avPacket = av_packet_alloc();
+//    m_context->avPacket = av_packet_alloc();
 
     // AVFrame用于存储解码后的像素数据(YUV)
     m_context->yuvFrame = av_frame_alloc();
@@ -113,6 +108,13 @@ bool CGEVideoDecodeHandler::open(const char *input) {
 
     m_width = m_context->avCodecContext->width;
     m_height = m_context->avCodecContext->height;
+
+    // Determine required buffer size and allocate buffer
+    // buffer中数据就是用于渲染的,且格式为RGBA
+    int numBytes=av_image_get_buffer_size(AV_PIX_FMT_RGBA, m_context->avCodecContext->width, m_context->avCodecContext->height, 1);
+    uint8_t * buffer=(uint8_t *)av_malloc(numBytes*sizeof(uint8_t));
+    av_image_fill_arrays(m_context->rgbFrame->data, m_context->rgbFrame->linesize, buffer, AV_PIX_FMT_RGBA,
+                         m_width, m_height, 1);
 
     // 由于解码出来的帧格式不是RGBA的,在渲染之前需要进行格式转换
     m_context->sws_ctx = sws_getContext(m_context->avCodecContext->width,
@@ -182,33 +184,45 @@ bool CGEVideoDecodeHandler::seekAccurate(ANativeWindow *nativeWindow,double tm) 
     }
 
     avcodec_flush_buffers(m_context->avCodecContext);
-    ANativeWindow_Buffer out_buffer;
+    ANativeWindow_setBuffersGeometry(nativeWindow, m_context->avCodecContext->width, m_context->avCodecContext->height,
+                                     WINDOW_FORMAT_RGBA_8888);
+    ANativeWindow_Buffer windowBuffer;
+
     int gotFrame = 0, ret = 0;
+    AVPacket packet;
     do
     {
-        if(av_read_frame(m_context->avFormatContext, m_context->avPacket) >= 0)
+        if(av_read_frame(m_context->avFormatContext, &packet) >= 0)
         {
-            if(m_context->avPacket->stream_index == m_context->videoStreamIndex)
+            if(packet.stream_index == m_context->videoStreamIndex)
             {
-                ret = avcodec_decode_video2(m_context->avCodecContext, m_context->yuvFrame, &gotFrame, m_context->avPacket);
+                ret = avcodec_decode_video2(m_context->avCodecContext, m_context->yuvFrame, &gotFrame, &packet);
 
                 if(gotFrame)
                 {
                     m_currentTimestamp = 1000.0 * (m_context->yuvFrame->pkt_pts - video_st->start_time) * av_q2d(video_st->time_base);
                     LOGI("Seeking time pass: %g", m_currentTimestamp);
 
-                    sws_scale(m_context->sws_ctx, (const uint8_t *const *) m_context->yuvFrame->data, m_context->yuvFrame->linesize, 0,
-                              m_context->avCodecContext->height, m_context->rgbFrame->data,  m_context->rgbFrame->linesize);
-                    ANativeWindow_setBuffersGeometry(nativeWindow, m_context->avCodecContext->width, m_context->avCodecContext->height,
-                                                     WINDOW_FORMAT_RGBA_8888);
+                    // lock native window buffer
+                    ANativeWindow_lock(nativeWindow, &windowBuffer, 0);
 
-                    ANativeWindow_lock(nativeWindow, &out_buffer, NULL);
                     // 格式转换
-                    av_image_fill_arrays( m_context->rgbFrame->data, m_context->rgbFrame->linesize,
-                                          (const uint8_t *) out_buffer.bits, AV_PIX_FMT_RGBA,
-                                          m_context->avCodecContext->width, m_context->avCodecContext->height, 1);
+                    sws_scale(m_context->sws_ctx, (uint8_t const * const *)m_context->yuvFrame->data,
+                              m_context->yuvFrame->linesize, 0, m_context->avCodecContext->height,
+                              m_context->rgbFrame->data, m_context->rgbFrame->linesize);
 
-                    // 3.unlock window
+                    // 获取stride
+                    uint8_t * dst = (uint8_t*)windowBuffer.bits;
+                    int dstStride = windowBuffer.stride * 4;
+                    uint8_t * src = (uint8_t*) (m_context->rgbFrame->data[0]);
+                    int srcStride = m_context->rgbFrame->linesize[0];
+
+                    // 由于window的stride和帧的stride不同,因此需要逐行复制
+                    int h;
+                    for (h = 0; h < m_height; h++) {
+                        memcpy(dst + h * dstStride, src + h * srcStride, srcStride);
+                    }
+
                     ANativeWindow_unlockAndPost(nativeWindow);
 
                 }
@@ -227,6 +241,7 @@ bool CGEVideoDecodeHandler::seekAccurate(ANativeWindow *nativeWindow,double tm) 
     {
         LOGI("Error when seeking: %x", ret);
     }
+    av_packet_unref(&packet);
     isSeeking= false;
     return true;
 }
@@ -263,45 +278,49 @@ void CGEVideoDecodeHandler::decode(ANativeWindow *nativeWindow, double time) {
     }
     LOGI("解码绘制第%s帧", "start");
 // 绘制时的缓冲区
-    ANativeWindow_Buffer out_buffer;
+    ANativeWindow_setBuffersGeometry(nativeWindow,  m_width, m_height, WINDOW_FORMAT_RGBA_8888);
+    ANativeWindow_Buffer windowBuffer;
     int frameCount=0;
     // 6.一帧一帧的读取压缩数据
-    while (av_read_frame(m_context->avFormatContext, m_context->avPacket) >= 0) {
-        // 只要视频压缩数据（根据流的索引位置判断）
-        if (m_context->avPacket->stream_index == m_context->videoStreamIndex) {
-            // 7.解码一帧视频压缩数据，得到视频像素数据
-            if (avcodec_send_packet(m_context->avCodecContext, m_context->avPacket) == 0) {
-                // 一个avPacket可能包含多帧数据，所以需要使用while循环一直读取
-                while (avcodec_receive_frame(m_context->avCodecContext, m_context->yuvFrame) == 0) {
-                    // 1.lock window
-                    // 设置缓冲区的属性：宽高、像素格式（需要与Java层的格式一致）
+    int frameFinished;
+    AVPacket packet;
+    while(av_read_frame(m_context->avFormatContext, &packet)>=0) {
+        // Is this a packet from the video stream?
+        if(packet.stream_index==m_context->videoStreamIndex) {
 
+            // Decode video frame
+            avcodec_decode_video2(m_context->avCodecContext, m_context->yuvFrame, &frameFinished, &packet);
 
-                    sws_scale(m_context->sws_ctx, (const uint8_t *const *) m_context->yuvFrame->data, m_context->yuvFrame->linesize, 0,
-                              m_context->avCodecContext->height, m_context->rgbFrame->data,  m_context->rgbFrame->linesize);
-                    ANativeWindow_setBuffersGeometry(nativeWindow, m_context->avCodecContext->width, m_context->avCodecContext->height,
-                                                     WINDOW_FORMAT_RGBA_8888);
+            // 并不是decode一次就可解码出一帧
+            if (frameFinished) {
 
-                    ANativeWindow_lock(nativeWindow, &out_buffer, NULL);
-                    // 格式转换
-                    av_image_fill_arrays( m_context->rgbFrame->data, m_context->rgbFrame->linesize,
-                                          (const uint8_t *) out_buffer.bits, AV_PIX_FMT_RGBA,
-                                          m_context->avCodecContext->width, m_context->avCodecContext->height, 1);
+                // lock native window buffer
+                ANativeWindow_lock(nativeWindow, &windowBuffer, 0);
 
-                    // 3.unlock window
-                    ANativeWindow_unlockAndPost(nativeWindow);
+                // 格式转换
+                sws_scale(m_context->sws_ctx, (uint8_t const * const *)m_context->yuvFrame->data,
+                          m_context->yuvFrame->linesize, 0, m_context->avCodecContext->height,
+                          m_context->rgbFrame->data, m_context->rgbFrame->linesize);
 
-                    // 每绘制一帧便休眠16毫秒，避免绘制过快导致播放的视频速度加快
-                    usleep(1000 * 16);
-                    LOGI("解码绘制第%d帧", frameCount);
-                    frameCount+=1;
+                // 获取stride
+                uint8_t * dst = (uint8_t*)windowBuffer.bits;
+                int dstStride = windowBuffer.stride * 4;
+                uint8_t * src = (uint8_t*) (m_context->rgbFrame->data[0]);
+                int srcStride = m_context->rgbFrame->linesize[0];
+
+                // 由于window的stride和帧的stride不同,因此需要逐行复制
+                int h;
+                for (h = 0; h < m_height; h++) {
+                    memcpy(dst + h * dstStride, src + h * srcStride, srcStride);
                 }
+
+                ANativeWindow_unlockAndPost(nativeWindow);
             }
+
         }
-        av_packet_unref(m_context->avPacket);
-        if(isRelease){
+        av_packet_unref(&packet);
+        if(isRelease)
             return;
-        }
     }
     LOGI("解码绘制第%s帧", "解码结束");
 
